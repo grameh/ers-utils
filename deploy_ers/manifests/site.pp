@@ -5,7 +5,9 @@ node default {
 
     Exec["apt-update"] -> Package <| |>
 
-    package {['git', 'curl', 'wget', 'tar', 'python-dev', 'python-pip', 'couchdb']:
+    # !!!! python-couchdb has a weird bug with the replicator database
+    # !!!! if the daemon fails to start, try getting the latest version of it
+    package {['git', 'curl', 'wget', 'tar', 'python-dev', 'python-pip', 'couchdb', 'python-couchdb']:
         ensure   => installed,
         provider => apt,
         before   => [Exec['CouchDB admin account'], Exec['download ers']],
@@ -16,7 +18,7 @@ node default {
     provider =>apt,
     }
 
-    package{['restkit', 'couchdbkit', 'virtualenv']:
+    package{['restkit', 'couchdbkit', 'virtualenv', 'rdflib']:
         ensure   => installed,
         provider => pip,
         require  => Package['python-pip'],
