@@ -7,7 +7,7 @@ node default {
 
     # !!!! python-couchdb has a weird bug with the replicator database
     # !!!! if the daemon fails to start, try getting the latest version of it
-    package {['git', 'curl', 'wget', 'tar', 'python-dev', 'python-pip', 'couchdb', 'python-couchdb']:
+    package {['git', 'curl', 'wget', 'tar', 'python-dev', 'python-pip', 'python-couchdb', 'couchdb']:
         ensure   => installed,
         provider => apt,
         before   => [Exec['CouchDB admin account'], Exec['download ers']],
@@ -18,8 +18,8 @@ node default {
     provider =>apt,
     }
 
-    package{['restkit', 'couchdbkit', 'virtualenv', 'rdflib']:
-        ensure   => installed,
+    package{['http-parser', 'socketpool','restkit', 'virtualenv', 'rdflib', 'CouchDB']:
+        ensure   => latest,
         provider => pip,
         require  => Package['python-pip'],
         before   => Exec['start ers'],
@@ -29,6 +29,7 @@ node default {
         command => 'echo "admin = -pbkdf2-7a4cc99ded3299e01b97258f0d93eab6dfb0d23e,4a2a5b043eb60d06f3d0204939c35f96,10" >> /etc/couchdb/local.ini',
         user    => root,
         before  => Service['couchdb'],
+        require => Package['couchdb'],
         path    => ['/usr/bin','/usr/sbin','/bin','/sbin'],
     }
     file { 'couchdb file':
@@ -62,6 +63,12 @@ node default {
         path    => ['/usr/bin','/usr/sbin','/bin','/sbin'],
     }
 
+    exec{'restart couch':
+        command => 'sudo restart couchdb',
+        before  => Exec['start ers'],
+        path    => ['/usr/bin','/usr/sbin','/bin','/sbin'],
+        require => Package['couchdb'],
+    }
     exec{'start ers':
         command => 'python /vagrant/ers-node/ers/daemon.py --config /etc/ers-node/ers-node.ini &',
         path    => ['/usr/bin','/usr/sbin','/bin','/sbin'],
