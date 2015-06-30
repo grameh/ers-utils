@@ -18,7 +18,7 @@ node default {
     provider =>apt,
     }
 
-    package{['http-parser', 'socketpool','restkit', 'virtualenv', 'rdflib', 'CouchDB']:
+    package{['http-parser', 'socketpool','restkit', 'virtualenv', 'rdflib', 'CouchDB', 'flask']:
         ensure   => latest,
         provider => pip,
         require  => Package['python-pip'],
@@ -48,6 +48,12 @@ node default {
         content => template('ers/ers-config.erb'),
     }
 
+    file{ 'couchdb config':
+        path    => '/etc/couchdb/default.ini',
+        content => template('ers/couchdb_default.erb'),
+        before  => Exec['restart couch'],
+     }
+
     service { 'couchdb':
         ensure   => running,
         provider => upstart,
@@ -67,7 +73,7 @@ node default {
         command => 'sudo restart couchdb',
         before  => Exec['start ers'],
         path    => ['/usr/bin','/usr/sbin','/bin','/sbin'],
-        require => Package['couchdb'],
+        require => [Package['couchdb'], Service['couchdb'], Exec['CouchDB admin account']],
     }
     exec{'start ers':
         command => 'python /vagrant/ers-node/ers/daemon.py --config /etc/ers-node/ers-node.ini &',
