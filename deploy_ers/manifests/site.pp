@@ -18,7 +18,7 @@ node default {
     provider =>apt,
     }
 
-    package{['http-parser', 'socketpool','restkit', 'virtualenv', 'rdflib', 'CouchDB', 'flask']:
+    package{['http-parser', 'socketpool','restkit', 'virtualenv', 'rdflib', 'CouchDB', 'flask', 'futures']:
         ensure   => latest,
         provider => pip,
         require  => Package['python-pip'],
