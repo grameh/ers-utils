@@ -15,6 +15,10 @@ Vagrant.configure(2) do |config|
   #config.vm.box = "ubuntu/trusty64"
   # FOR ERS!!
   # make sure each node has a unique host name, otherwise it will not work
+  config.vm.provider "virtualbox" do |v|
+    v.cpus = 2
+    v.memory = "1024"
+  end
   config.vm.define "node1" do |node1|
     node1.vm.box = "ubuntu/trusty64"
     node1.vm.host_name = "node1"
