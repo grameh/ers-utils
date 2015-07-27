@@ -3,6 +3,10 @@ node default {
           command => '/usr/bin/apt-get update',
     }
 
+   $parameters ={
+       peer_type  => "node",
+   }
+
     Exec["apt-update"] -> Package <| |>
 
     # !!!! python-couchdb has a weird bug with the replicator database
@@ -45,6 +49,7 @@ node default {
 
     file{ 'ers config':
         path    => '/etc/ers-node/ers-node.ini',
+        deploy_params => $parameters,
         content => template('ers/ers-config.erb'),
     }
 

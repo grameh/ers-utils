@@ -5,7 +5,7 @@
 ;
 [node]
 ; A node can be either a "contributor" or a "bridge"
-type = contributor
+type = <%= @deploy_params["peer_type"] %>
 ; PID file for this ERS daemon instance (or 'none')
 pid_file = none
 
