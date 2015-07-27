@@ -3,7 +3,7 @@ node default {
           command => '/usr/bin/apt-get update',
     }
 
-   $parameters ={
+   $deploy_params={
        peer_type  => "node",
    }
 
@@ -49,7 +49,6 @@ node default {
 
     file{ 'ers config':
         path    => '/etc/ers-node/ers-node.ini',
-        deploy_params => $parameters,
         content => template('ers/ers-config.erb'),
     }
 
