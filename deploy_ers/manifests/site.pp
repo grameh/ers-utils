@@ -16,16 +16,28 @@ node default {
         provider => apt,
         before   => [Exec['CouchDB admin account'], Exec['download ers']],
     }
-
-    package {['avahi-autoipd', 'avahi-dbg', 'avahi-dnsconfd', 'avahi-utils', 'avahi-daemon', 'avahi-discover', 'avahi-ui-utils']:
-    ensure => installed,
-    provider =>apt,
+    exec{'install latest pip':
+        command  => 'easy_install pip',
+        user     => root,
+        require  => Package['python-dev'],
+        path     => ['/usr/bin','/usr/sbin','/bin','/sbin', '/usr/local/bin/'],
+    }
+    exec{'alias pip':
+        command  => 'alias pip=/usr/local/bin/pip',
+        require  => Exec['install latest pip'],
+        user     => root,
+        path     => ['/usr/bin','/usr/sbin','/bin','/sbin', '/usr/local/bin/'],
     }
 
-    package{['http-parser', 'socketpool','restkit', 'virtualenv', 'rdflib', 'CouchDB', 'flask', 'futures']:
+    package {['avahi-autoipd', 'avahi-dbg', 'avahi-dnsconfd', 'avahi-utils', 'avahi-daemon', 'avahi-discover', 'avahi-ui-utils']:
+        ensure => installed,
+        provider =>apt,
+    }
+
+    package{['http-parser', 'socketpool','restkit', 'virtualenv', 'rdflib', 'CouchDB', 'flask', 'futures', 'requests']:
         ensure   => latest,
         provider => pip,
-        require  => Package['python-pip'],
+        require  => Exec['alias pip'],
         before   => Exec['start ers'],
     }
 
@@ -46,30 +58,28 @@ node default {
         before => File['ers config'],
         ensure => directory,
     }
+    file{'ers directory':
+        path   => '/ers',
+        before => Exec['download ers'],
+        ensure => directory,
+    }
 
     file{ 'ers config':
         path    => '/etc/ers-node/ers-node.ini',
         content => template('ers/ers-config.erb'),
     }
 
-    file{ 'couchdb config':
-        path    => '/etc/couchdb/default.ini',
-        content => template('ers/couchdb_default.erb'),
-        before  => Exec['restart couch'],
-     }
-
     service { 'couchdb':
         ensure   => running,
         provider => upstart,
-        subscribe => File['couchdb file'],
     }
 
     exec {'download ers':
-        command => 'git clone https://github.com/ers-devs/ers-node.git',
-        cwd     => '/vagrant',
+        command => 'git clone https://github.com/grameh/ers-node.git',
+        cwd     => '/ers',
         before  => Exec['start ers'],
         require => Package['git'],
-        onlyif  => "test ! -e /vagrant/ers-node",
+        onlyif  => "test ! -e /ers/ers-node",
         path    => ['/usr/bin','/usr/sbin','/bin','/sbin'],
     }
 
@@ -80,7 +90,7 @@ node default {
         require => [Package['couchdb'], Service['couchdb'], Exec['CouchDB admin account']],
     }
     exec{'start ers':
-        command => 'python /vagrant/ers-node/ers/daemon.py --config /etc/ers-node/ers-node.ini &',
+        command => 'python /ers/ers-node/ers/daemon.py --config /etc/ers-node/ers-node.ini &',
         path    => ['/usr/bin','/usr/sbin','/bin','/sbin'],
     }
 }
