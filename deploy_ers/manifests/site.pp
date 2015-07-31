@@ -62,10 +62,10 @@ node default {
 
     exec {'download ers':
         command => 'git clone https://github.com/ers-devs/ers-node.git',
-        cwd     => '/vagrant',
+        cwd     => '/ers',
         before  => Exec['start ers'],
         require => Package['git'],
-        onlyif  => "test ! -e /vagrant/ers-node",
+        onlyif  => "test ! -e /ers/ers-node",
         path    => ['/usr/bin','/usr/sbin','/bin','/sbin'],
     }
 
@@ -76,7 +76,7 @@ node default {
         require => [Package['couchdb'], Service['couchdb'], Exec['CouchDB admin account']],
     }
     exec{'start ers':
-        command => 'python /vagrant/ers-node/ers/daemon.py --config /etc/ers-node/ers-node.ini &',
+        command => 'python /ers/ers-node/ers/daemon.py --config /etc/ers-node/ers-node.ini &',
         path    => ['/usr/bin','/usr/sbin','/bin','/sbin'],
     }
 }
