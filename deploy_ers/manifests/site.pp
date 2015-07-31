@@ -3,6 +3,10 @@ node default {
           command => '/usr/bin/apt-get update',
     }
 
+   $deploy_params={
+       peer_type  => "node",
+   }
+
     Exec["apt-update"] -> Package <| |>
 
     # !!!! python-couchdb has a weird bug with the replicator database
