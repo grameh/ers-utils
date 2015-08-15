@@ -44,6 +44,8 @@ ADD ers-config.ini /etc/ers-node/ers-node.ini
 #start stuff
 ADD start_daemons.sh /tmp/start_daemons.sh
 
+RUN pip install prettytable
+
 #RUN couchdb -b
 EXPOSE 5984
 EXPOSE 5678
