@@ -1,12 +1,16 @@
 #!/usr/bin/python
+import re
 import json
 import time
 import random
+import uuid
+import ast
 from copy import deepcopy
 import os
 import subprocess
-NR_INSTANCES=2
-pipework_path = '/home/mga/Documents/thesis/ers-utils/Docker/pipeworks/pipework'
+NR_INSTANCES=3
+pipework_path = os.getcwd()+'/pipework'
+interface = 'eth1'
 docker_path = '/usr/bin/docker'
 LANGUAGES_LIST = ['java', 'c', 'c++', 'matlab', 'r', 'go', 'rust', 'bash', 'c#', 'python', 'ruby',
                   'perl', 'php', 'html', 'css', 'javascript', 'sql', 'objective-c', 'swift']
@@ -20,8 +24,8 @@ def add_document_to_couchdb_in_docker(container_id, entity_id, dbname, statement
         document_json[key] = statements[key]
 
 
-    command = "curl -X PUT localhost:5984/{db_name}/{docid} -d '{json_dump}'".format(db_name = dbname,\
-                                                    docid = entity_id,
+    command = "curl -s -X PUT localhost:5984/{db_name}/{docid} -d '{json_dump}'".format(db_name = dbname,\
+                                                    docid = str(uuid.uuid4()).replace('-',''),
                                                     json_dump = json.dumps(document_json))
 
     os.system(docker_path + " exec {} {}".format(container_id, command))
@@ -45,7 +49,7 @@ def remove_all_docker():
     all_containers_command = (docker_path + ' ps -a -q').split(' ')
     result = subprocess.check_output(all_containers_command)
     result = result.replace('\n', ' ')
-    os.system(docker_path + ' kill ' + result)
+    #os.system(docker_path + ' kill ' + result)
     os.system(docker_path + ' rm ' + result)
 
 
@@ -59,23 +63,76 @@ def link_nodes():
     container_list = running_containers_list()
     for i in range(len(container_list)):
         container_id = container_list[i]
-        pipeworks_command = 'sudo ' + pipework_path + ' eth0 ' + container_id +\
+        pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' ' + container_id +\
                                 ' 192.168.0.' + str(200 + i) +'/24'
         os.system(pipeworks_command)
 
 def search():
-    command = 'curl localhost:5000/Search/ers:type/ers:ConferenceAttendee'
+    command = 'curl -s localhost:5000/Search/ers:type/ers:ConferenceAttendee'
     container_list = running_containers_list()
     for i in range(len(container_list)):
         container_id = container_list[i]
         full_cmd = docker_path + " exec " + container_id + " " + command
         output = subprocess.check_output(full_cmd.split(' '))
-        print "node " + str(i) + "i output"
+        print "node " + str(i) + " output"
         print output
 
-    pass
+
+def cache_entities():
+    command = 'curl -s localhost:5000/Search/ers:type/ers:ConferenceAttendee'
+    cache_command = 'curl -s localhost:5000/CacheEntity/'
+    container_list = running_containers_list()
+    for i in range(len(container_list)):
+        container_id = container_list[i]
+        full_cmd = docker_path + " exec " + container_id + " " + command
+        output = subprocess.check_output(full_cmd.split(' '))
+        entities_list = ast.literal_eval(output)
+        for entity in entities_list:
+            full_cmd = docker_path + " exec " + container_id + " " + cache_command + entity
+            output = subprocess.check_output(full_cmd.split(' '))
+
+def add_random_statements():
+    # each node makes a random number of "endorsements" to other conference attendees
+    max_nr_peers_endorsed = 3
+    max_nr_endorsements = 5
+    container_list = running_containers_list()
+    if len(container_list) < 2:
+        print "only one participant!"
+        return
+    for participant in container_list:
+        #he makes nr_endorsements to nodes other than himself
+        for i in range(0, random.randint(1,max_nr_peers_endorsed)):
+            # the list of peers
+            # this is the list of documents in ers-cache flask/ShowDB/<db_name>
+            import pdb; pdb.set_trace()
+
+            #extract all doc ids
+            command = 'curl -s localhost:5000/Search/ers:type/ers:ConferenceAttendee'
+            full_cmd = docker_path + " exec " + participant + " " + command
+            output = subprocess.check_output(full_cmd.split(' '))
+            participant_list = ast.literal_eval(output)
+
+            participant_name = random.choice(participant_list)
+            # get the nodes's skills list
+            # flask/ShowDBDocument/<db_name>/<entity_name>
+            command = docker_path + ' exec ' + participant + ' curl -s localhost:5000/ShowDBDocument/ers-cache/' + participant_name
+            result = subprocess.check_output(command.split(' '))
+            result = json.loads(result)
+
+            skill_list = result['ers:skills']
+            skill_choice = random.choice(skill_list)
+
+            # pick a skill and endorse it
+            # flask/AddStatement/<entity>/<predicate>/<value>
+            command = docker_path + ' exec ' + participant + ' curl -s localhost:5000/AddStatement/' + participant_name + '/ers:endorsement/' + skill_choice
+            result = subprocess.check_output(command.split(' '))
+
 
 def main():
+    # monitoring done in a separate process:
+    # query all the nodes, see how many peers they see
+    # and how many statements they see about themselves in their cache
+
     #first, start the nodes
     start_nodes()
     time.sleep(2)
@@ -101,8 +158,14 @@ def main():
     link_nodes()
     #query for people in the conference, see how fast can view all profiles
     search()
+    #get all entities, then cache them so that we trigger replication
+    cache_entities()
 
     #make random statements, see how fast it takes to see them
+    add_random_statements()
+
+    # each node must search for themselves and see whether others have made statements
+    # about them
     #clear
     remove_all_docker()
 
