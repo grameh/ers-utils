@@ -5,8 +5,7 @@ RUN apt-get update ; apt-get install -y git \
                                         wget \
                                         tar \
                                         python-dev \
-                                        python-pip \
-                                        python-couchdb
+                                        python-pip 
 
 RUN pip install --upgrade http-parser \
                           socketpool \
@@ -33,7 +32,8 @@ RUN apt-get install -y avahi-dbg \
 VOLUME ["/var/run/couchdb", "/var/run/dbus"]
 RUN apt-get install software-properties-common -y
 RUN add-apt-repository ppa:couchdb/stable -y
-RUN apt-get install couchdb -y
+RUN apt-get update -y
+RUN apt-get upgrade couchdb -y
 
 ADD couchdb_default.ini /etc/couchdb/local.ini
 
