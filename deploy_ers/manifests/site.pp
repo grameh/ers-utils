@@ -4,14 +4,14 @@ node default {
     }
 
    $deploy_params={
-       peer_type  => "node",
+       peer_type  => "contributor",
    }
 
     Exec["apt-update"] -> Package <| |>
 
     # !!!! python-couchdb has a weird bug with the replicator database
     # !!!! if the daemon fails to start, try getting the latest version of it
-    package {['git', 'curl', 'wget', 'tar', 'python-dev', 'python-pip', 'python-couchdb', 'couchdb']:
+    package {['git', 'curl', 'wget', 'tar', 'python-dev', 'python-pip', 'couchdb']:
         ensure   => installed,
         provider => apt,
         before   => [Exec['CouchDB admin account'], Exec['download ers']],
@@ -22,12 +22,12 @@ node default {
         require  => Package['python-dev'],
         path     => ['/usr/bin','/usr/sbin','/bin','/sbin', '/usr/local/bin/'],
     }
-    exec{'alias pip':
-        command  => 'alias pip=/usr/local/bin/pip',
-        require  => Exec['install latest pip'],
-        user     => root,
-        path     => ['/usr/bin','/usr/sbin','/bin','/sbin', '/usr/local/bin/'],
-    }
+    #exec{'alias pip':
+    #    command  => 'alias pip=/usr/local/bin/pip',
+    #    require  => Exec['install latest pip'],
+    #    user     => root,
+    #    path     => ['/usr/bin','/usr/sbin','/bin','/sbin', '/usr/local/bin/'],
+    #}
 
     package {['avahi-autoipd', 'avahi-dbg', 'avahi-dnsconfd', 'avahi-utils', 'avahi-daemon', 'avahi-discover', 'avahi-ui-utils']:
         ensure => installed,
@@ -37,7 +37,8 @@ node default {
     package{['http-parser', 'socketpool','restkit', 'virtualenv', 'rdflib', 'CouchDB', 'flask', 'futures', 'requests']:
         ensure   => latest,
         provider => pip,
-        require  => Exec['alias pip'],
+        #require  => Exec['alias pip'],
+        require  => Exec['install latest pip'],
         before   => Exec['start ers'],
     }
 
