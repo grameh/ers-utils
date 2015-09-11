@@ -1,6 +1,7 @@
 #!/usr/bin/python
 import re
 import json
+import threading
 import time
 import random
 import uuid
@@ -17,6 +18,9 @@ LANGUAGES_LIST = ['java', 'c', 'c++', 'matlab', 'r', 'go', 'rust', 'bash', 'c#',
 #random list of companies where johndoes work
 COMPANIES_LIST = ['google', 'facebook', 'microsoft', 'intel', 'ibm', 'oracle', 'sap', 'symatec', 'vmware',
                   'twitter', 'cisco', 'airbnb', 'uber', 'nvidia', 'apple', 'linkedin']
+
+#global variable containing statement documents ids
+doc_list = []
 
 def add_document_to_couchdb_in_docker(container_id, entity_id, dbname, statements):
     document_json = {"@id": entity_id}
@@ -54,10 +58,11 @@ def remove_all_docker():
 
 
 def start_nodes():
-    command = (docker_path + " run -d grameh/ers").split(' ')
+    command = (docker_path + " run -d grameh/ers:test")
 
     for i in range(NR_INSTANCES):
-        result = subprocess.check_output(command)
+        #result = subprocess.check_output(command.split())
+        os.system(command)
 
 def link_nodes():
     container_list = running_containers_list()
@@ -93,18 +98,19 @@ def cache_entities():
 
 def add_random_statements():
     # each node makes a random number of "endorsements" to other conference attendees
-    max_nr_peers_endorsed = 3
-    max_nr_endorsements = 5
+    max_nr_peers_endorsed = 10
+    max_nr_endorsements = 10
     container_list = running_containers_list()
     if len(container_list) < 2:
         print "only one participant!"
         return
+    all_statements = []
+    global doc_list
     for participant in container_list:
         #he makes nr_endorsements to nodes other than himself
         for i in range(0, random.randint(1,max_nr_peers_endorsed)):
             # the list of peers
             # this is the list of documents in ers-cache flask/ShowDB/<db_name>
-            import pdb; pdb.set_trace()
 
             #extract all doc ids
             command = 'curl -s localhost:5000/Search/ers:type/ers:ConferenceAttendee'
@@ -126,6 +132,28 @@ def add_random_statements():
             # flask/AddStatement/<entity>/<predicate>/<value>
             command = docker_path + ' exec ' + participant + ' curl -s localhost:5000/AddStatement/' + participant_name + '/ers:endorsement/' + skill_choice
             result = subprocess.check_output(command.split(' '))
+            new_doc_id = result.split()[-2]
+            doc_list.append(new_doc_id)
+            print doc_list
+
+def how_many_documents_in_cache():
+    # check how many documents in doc_list are visible on each peer
+    if len(doc_list) > 0:
+        container_list = running_containers_list()
+        list_cache_command = 'curl -s localhost:5984/ers-cache/_all_docs'
+        for container in container_list:
+            full_cmd = 'docker exec ' + container + ' ' + list_cache_command
+            result = subprocess.check_output(full_cmd.split(' '))
+            nr_found = 0
+            for doc in doc_list:
+                if doc in result:
+                    nr_found += 1
+            print 'On container {} found {} percent'.format(container, float(nr_found)/len(doc_list))
+
+def poll_nodes():
+    for i in range(0,10):
+        how_many_documents_in_cache()
+        time.sleep(1)
 
 
 def main():
@@ -135,9 +163,9 @@ def main():
 
     #first, start the nodes
     start_nodes()
-    time.sleep(2)
     #then, add "offline" statements to them, describing their profile
     container_list = running_containers_list()
+
     for i in range(len(container_list)):
         # build up a node's "profile"
         container_id = container_list[i]
@@ -160,6 +188,10 @@ def main():
     search()
     #get all entities, then cache them so that we trigger replication
     cache_entities()
+
+    print "starting monitoring thread"
+    t = threading.Thread(target = poll_nodes)
+    t.start()
 
     #make random statements, see how fast it takes to see them
     add_random_statements()

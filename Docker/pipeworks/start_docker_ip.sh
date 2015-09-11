@@ -1,7 +1,7 @@
 #!/bin/bash
 #eth0 - the "real" interface to listen to
 #last parameter is the ip
-nr_instances=1
+nr_instances=2
 
 for (( i = 0 ; i < $nr_instances ; i++ ))
 do
