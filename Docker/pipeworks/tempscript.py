@@ -11,7 +11,7 @@ import os
 import subprocess
 NR_INSTANCES=3
 pipework_path = os.getcwd()+'/pipework'
-interface = 'eth1'
+interface = 'eth0'
 docker_path = '/usr/bin/docker'
 LANGUAGES_LIST = ['java', 'c', 'c++', 'matlab', 'r', 'go', 'rust', 'bash', 'c#', 'python', 'ruby',
                   'perl', 'php', 'html', 'css', 'javascript', 'sql', 'objective-c', 'swift']
@@ -58,11 +58,12 @@ def remove_all_docker():
 
 
 def start_nodes():
-    command = (docker_path + " run -d grameh/ers:test")
+    command = (docker_path + " run -d grameh/ers")
 
     for i in range(NR_INSTANCES):
         #result = subprocess.check_output(command.split())
         os.system(command)
+        time.sleep(1)
 
 def link_nodes():
     container_list = running_containers_list()
@@ -71,6 +72,8 @@ def link_nodes():
         pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' ' + container_id +\
                                 ' 192.168.0.' + str(200 + i) +'/24'
         os.system(pipeworks_command)
+        wait_command = 'sudo ' + pipework_path + ' --wait -i ' + interface
+        os.system(wait_command)
 
 def search():
     command = 'curl -s localhost:5000/Search/ers:type/ers:ConferenceAttendee'
@@ -163,8 +166,10 @@ def main():
 
     #first, start the nodes
     start_nodes()
+    time.sleep(4)
     #then, add "offline" statements to them, describing their profile
     container_list = running_containers_list()
+    print "containers: " + str(container_list)
 
     for i in range(len(container_list)):
         # build up a node's "profile"
