@@ -45,10 +45,16 @@ def link_nodes(container_list):
     #bridge will connect to each subnet in turn
     for i in range(len(container_list)):
         container_id = container_list[i]
-        pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' ' + container_id +' 192.168.' + str(i) + '.200/24'
+        pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' ' + container_id +' 192.168.2.' + str(i) + '/24'
         os.system(pipeworks_command)
         wait_command = 'sudo ' + pipework_path + ' --wait -i ' + interface
         os.system(wait_command)
+        # make unavailable (disconnect)
+        bring_node_down(container_id)
+        #also down default eth0
+        bring_node_down(container_id, "eth0")
+
+
 
 def remove_pipeworks_interface(container_id, interface_nr):
     #remove pipeworks interface from container
@@ -60,19 +66,17 @@ def remove_pipeworks_interface(container_id, interface_nr):
     #host_cmd = 'sudo ifconfig hostbridge down'
     #os.system(host_cmd)
 
-def add_bridge_pipework_interface(container_id, interface_nr):
-    #connect bridge to one of the contributors
-    #if container_id[-1] == '\n':
-    #    container_id = container_id[:-1]
-    #pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' -i eth1 -l hstbr  ' + container_id + ' 192.168.' + str(subnet_id) + '.250/24'
-    #os.system(pipeworks_command)
-    #wait_command = 'sudo ' + pipework_path + ' --wait -i ' + interface
-    #os.system(wait_command)
-
-    #bring up interface
+def bring_node_up(container_id):
     if container_id[-1] == '\n':
         container_id = container_id[:-1]
-    command = 'ifconfig eth'+ str(interface_nr)  +' up'
+    command = 'ifconfig eth1 up'
+    full_cmd = (docker_path + " exec {} {}").format(container_id, command)
+    os.system(full_cmd)
+
+def bring_node_down(container_id, interface = 'eth1'):
+    if container_id[-1] == '\n':
+        container_id = container_id[:-1]
+    command = 'ifconfig ' + interface +  ' down'
     full_cmd = (docker_path + " exec {} {}").format(container_id, command)
     os.system(full_cmd)
 
@@ -92,12 +96,28 @@ def populate_prices_contributors(container_list):
         add_document_to_couchdb_in_docker(container_id, node_id, 'ers-public', node_information)
 
 def start_nodes():
-    command = (docker_path + " run -d grameh/ers")
+    command = (docker_path + " run --privileged -d grameh/ers")
 
     for i in range(NR_INSTANCES):
         #result = subprocess.check_output(command.split())
         os.system(command)
         time.sleep(1)
+
+def add_bridge_pipework_interface(container_id, interface_nr):
+    #connect bridge to one of the contributors
+    #if container_id[-1] == '\n':
+    #    container_id = container_id[:-1]
+    #pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' -i eth1 -l hstbr  ' + container_id + ' 192.168.' + str(subnet_id) + '.250/24'
+    #os.system(pipeworks_command)
+    #wait_command = 'sudo ' + pipework_path + ' --wait -i ' + interface
+    #os.system(wait_command)
+
+    #bring up interface
+    if container_id[-1] == '\n':
+        container_id = container_id[:-1]
+    command = 'ifconfig eth'+ str(interface_nr)  +' up'
+    full_cmd = (docker_path + " exec {} {}").format(container_id, command)
+    os.system(full_cmd)
 
 def start_bridge():
     command = (docker_path + ' run --privileged -d grameh/ers-bridge')
@@ -109,18 +129,11 @@ def start_bridge():
     if container_id[-1] == '\n':
         container_id = container_id[:-1]
 
-    #create all the subnets
-    for subnet_id in range(0, NR_INSTANCES):
-        pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' -i eth' + str(1 + subnet_id) + ' '  + container_id + ' 192.168.' + str(subnet_id) + '.250/24'
-        os.system(pipeworks_command)
-        wait_command = 'sudo ' + pipework_path + ' --wait -i ' + interface
-        os.system(wait_command)
-
-    # make them unavailable
-    for interface_id in range(1, NR_INSTANCES + 1):
-        command = 'ifconfig eth'+ str(interface_id)  +' down'
-        full_cmd = (docker_path + " exec {} {}").format(container_id, command)
-        os.system(full_cmd)
+    #create subnet
+    pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' -i eth1 '  + container_id + ' 192.168.2.250/24'
+    os.system(pipeworks_command)
+    wait_command = 'sudo ' + pipework_path + ' --wait -i ' + interface
+    os.system(wait_command)
 
     return result
 
@@ -154,10 +167,10 @@ def main():
     # so the first time the truck arrives, he performs a search for those entities and caches the documents.
     # after this initial step, prices will be updated automagically
     for i in range(NR_INSTANCES):
-        print "in loop"
+        container_id = container_list[i]
         #connect bridge to container 'container_list[i]'
-        add_bridge_pipework_interface(bridge_id, i + 1)
-        import pdb;pdb.set_trace()
+        bring_node_up(container_id)
+        #add_bridge_pipework_interface(bridge_id, i + 1)
 
         #search for neighbors
         if i == 0:
@@ -194,23 +207,30 @@ def main():
             # peer not found on brige, skip?
             pass
 
-        import pdb;pdb.set_trace()
         #disconnect truck from peer
-        remove_pipeworks_interface(bridge_id, i + 1)
+        #remove_pipeworks_interface(bridge_id, i + 1)
+        bring_node_down(container_id)
 
     NR_STEPS_TEST = 10
     # truck starts moving around and getting updated versions
     for i in range(NR_STEPS_TEST):
+        print "connecting step " + str(i)
         # connect to node i%NR_INSTANCES
         contributor = i % NR_INSTANCES
+
+        container_id = container_list[contributor]
+        #connect bridge to container 'container_list[i]'
+        bring_node_up(container_id)
+
         # sync up
-        add_bridge_pipework_interface(bridge_id, contributor)
+        #add_bridge_pipework_interface(bridge_id, contributor)
 
         # wait
         time.sleep(1)
 
         # disconnect
-        remove_pipeworks_interface(bridge_id)
+        #remove_pipeworks_interface(bridge_id)
+        bring_node_down(container_id)
 
     remove_all_docker()
 
