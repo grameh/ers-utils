@@ -1,6 +1,8 @@
 #!/usr/bin/python
 import time
 import subprocess
+import uuid
+import ast
 import random
 import json
 import os
@@ -43,26 +45,38 @@ def link_nodes(container_list):
     #bridge will connect to each subnet in turn
     for i in range(len(container_list)):
         container_id = container_list[i]
-        pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' ' + container_id +\
-                                ' 192.168.' + str(i) + '.200/24'
+        pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' ' + container_id +' 192.168.' + str(i) + '.200/24'
         os.system(pipeworks_command)
         wait_command = 'sudo ' + pipework_path + ' --wait -i ' + interface
         os.system(wait_command)
 
-def remove_pipeworks_interface(container_id):
+def remove_pipeworks_interface(container_id, interface_nr):
     #remove pipeworks interface from container
-    command = 'ifconfig br1 down'
-    os.system(docker_path + " exec {} {}".format(container_id, command))
+    if container_id[-1] == '\n':
+        container_id = container_id[:-1]
+    command = 'ifconfig eth'+ str(interface_nr)  +' down'
+    full_cmd = (docker_path + " exec {} {}").format(container_id, command)
+    os.system(full_cmd)
+    #host_cmd = 'sudo ifconfig hostbridge down'
+    #os.system(host_cmd)
 
-def add_bridge_pipework_interface(container_id, subnet_id):
+def add_bridge_pipework_interface(container_id, interface_nr):
     #connect bridge to one of the contributors
-    pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' ' + container_id +\
-                            ' 192.168.' + subnet_id + '.200/24'
-    os.system(pipeworks_command)
-    wait_command = 'sudo ' + pipework_path + ' --wait -i ' + interface
-    os.system(wait_command)
+    #if container_id[-1] == '\n':
+    #    container_id = container_id[:-1]
+    #pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' -i eth1 -l hstbr  ' + container_id + ' 192.168.' + str(subnet_id) + '.250/24'
+    #os.system(pipeworks_command)
+    #wait_command = 'sudo ' + pipework_path + ' --wait -i ' + interface
+    #os.system(wait_command)
 
-def populate_prices_contributors(container_list)
+    #bring up interface
+    if container_id[-1] == '\n':
+        container_id = container_id[:-1]
+    command = 'ifconfig eth'+ str(interface_nr)  +' up'
+    full_cmd = (docker_path + " exec {} {}").format(container_id, command)
+    os.system(full_cmd)
+
+def populate_prices_contributors(container_list):
     vendor_items = 3
     for i in range(len(container_list)):
         # add initial prices
@@ -86,11 +100,28 @@ def start_nodes():
         time.sleep(1)
 
 def start_bridge():
-    command = (docker_path + ' run -d grameh/ers_bridge')
+    command = (docker_path + ' run --privileged -d grameh/ers-bridge')
 
     result = subprocess.check_output(command.split(' '))
 
-    time.sleep(1)
+    time.sleep(2)
+    container_id = result
+    if container_id[-1] == '\n':
+        container_id = container_id[:-1]
+
+    #create all the subnets
+    for subnet_id in range(0, NR_INSTANCES):
+        pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' -i eth' + str(1 + subnet_id) + ' '  + container_id + ' 192.168.' + str(subnet_id) + '.250/24'
+        os.system(pipeworks_command)
+        wait_command = 'sudo ' + pipework_path + ' --wait -i ' + interface
+        os.system(wait_command)
+
+    # make them unavailable
+    for interface_id in range(1, NR_INSTANCES + 1):
+        command = 'ifconfig eth'+ str(interface_id)  +' down'
+        full_cmd = (docker_path + " exec {} {}").format(container_id, command)
+        os.system(full_cmd)
+
     return result
 
 def remove_all_docker():
@@ -107,9 +138,10 @@ def remove_all_docker():
 
 def main():
     start_nodes()
+    time.sleep(2)
     #populate initial prices
     container_list = running_containers_list()
-    node_id_list = [str(ord('A') + i) for i in range(len(container_list))]
+    node_id_list = [chr(ord('A') + i) for i in range(len(container_list))]
     populate_prices_contributors(container_list)
     # at this point, each contributor has his own price list
     # create a subnet for each of them
@@ -122,8 +154,10 @@ def main():
     # so the first time the truck arrives, he performs a search for those entities and caches the documents.
     # after this initial step, prices will be updated automagically
     for i in range(NR_INSTANCES):
+        print "in loop"
         #connect bridge to container 'container_list[i]'
-        add_bridge_pipework_interface(bridge_id, i)
+        add_bridge_pipework_interface(bridge_id, i + 1)
+        import pdb;pdb.set_trace()
 
         #search for neighbors
         if i == 0:
@@ -134,31 +168,35 @@ def main():
             right_peer = node_id_list[0]
         else:
             right_peer = node_id_list[i+1]
-        #search by entity left_peer and right_peer and cache them
-        command = 'curl -s localhost:5000/Search/left_peer'
+        #search for other vendors
+        command = 'curl -s localhost:5000/Search/ers:type/ers:Vendor'
         cache_command = 'curl -s localhost:5000/CacheEntity/'
 
         container_id = container_list[i]
         full_cmd = docker_path + " exec " + container_id + " " + command
         output = subprocess.check_output(full_cmd.split(' '))
         entities_list = ast.literal_eval(output)
-        for entity in entities_list:
-            full_cmd = docker_path + " exec " + container_id + " " + cache_command + entity
+        print "got entities"
+        #cache left and right peer if they are available on the bridge
+        try:
+            entities_list.index(left_peer)
+            full_cmd = docker_path + " exec " + container_id + " " + cache_command + left_peer
             output = subprocess.check_output(full_cmd.split(' '))
+        except:
+            # peer not found on brige, skip?
+            pass
 
-        command = 'curl -s localhost:5000/Search/right_peer'
-        cache_command = 'curl -s localhost:5000/CacheEntity/'
-
-        container_id = container_list[i]
-        full_cmd = docker_path + " exec " + container_id + " " + command
-        output = subprocess.check_output(full_cmd.split(' '))
-        entities_list = ast.literal_eval(output)
-        for entity in entities_list:
-            full_cmd = docker_path + " exec " + container_id + " " + cache_command + entity
+        try:
+            entities_list.index(right_peer)
+            full_cmd = docker_path + " exec " + container_id + " " + cache_command + right_peer
             output = subprocess.check_output(full_cmd.split(' '))
+        except:
+            # peer not found on brige, skip?
+            pass
 
+        import pdb;pdb.set_trace()
         #disconnect truck from peer
-        remove_pipeworks_interface(bridge_id)
+        remove_pipeworks_interface(bridge_id, i + 1)
 
     NR_STEPS_TEST = 10
     # truck starts moving around and getting updated versions
