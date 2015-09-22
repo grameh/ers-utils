@@ -6,6 +6,7 @@ import ast
 import random
 import json
 import os
+from multiprocessing import Process
 
 pipework_path = os.getcwd()+'/pipework'
 interface = 'eth0'
@@ -149,6 +150,25 @@ def remove_all_docker():
     #os.system(docker_path + ' kill ' + result)
     os.system(docker_path + ' rm ' + result)
 
+def add_statements(run_seconds, container_id):
+    i = 0
+    if container_id[-1] == '\n':
+        container_id = container_id[:-1]
+    full_cmd_prefix = docker_path + ' exec ' + str(container_id) + ' '
+    while (time.time() < run_seconds):
+        command = 'curl -s localhost:5000/' + entity_name + '/item' + str(i) + '/price' + str(i)
+        os.system(full_cmd_prefix + command)
+        time.sleep(random.randint(1,4))
+        i += 1
+
+def query_node(container_id, db_name, entity_name):
+    command= 'curl -s localhost:5000/ShowDBDocument/' + db_name + '/' + entity_name
+    if container_id[-1] == '\n':
+        container_id = container_id[:-1]
+    full_cmd_prefix = docker_path + ' exec ' + str(container_id) + ' '
+    result = subprocess.check_output((full_cmd_prefix + command).split())
+    return result
+
 def main():
     start_nodes()
     time.sleep(2)
@@ -189,7 +209,6 @@ def main():
         full_cmd = docker_path + " exec " + container_id + " " + command
         output = subprocess.check_output(full_cmd.split(' '))
         entities_list = ast.literal_eval(output)
-        print "got entities"
         #cache left and right peer if they are available on the bridge
         try:
             entities_list.index(left_peer)
@@ -212,6 +231,14 @@ def main():
         bring_node_down(container_id)
 
     NR_STEPS_TEST = 10
+    #start a process on each node that adds prices
+    for container_id in container_list:
+        p = Process(target=add_statements, args=(200, container_id))
+        p.start()
+
+
+    #monitor differences
+
     # truck starts moving around and getting updated versions
     for i in range(NR_STEPS_TEST):
         print "connecting step " + str(i)
@@ -222,14 +249,31 @@ def main():
         #connect bridge to container 'container_list[i]'
         bring_node_up(container_id)
 
-        # sync up
-        #add_bridge_pipework_interface(bridge_id, contributor)
-
         # wait
-        time.sleep(1)
+        time.sleep(2)
+
+        # query node 
+        node_res = query_node(container_id, db_name = 'ers-public', entity_name = node_id_list[contributor])
+        # query bridge
+        bridge_res = query_node(bridge_id, db_name = 'ers-cache', entity_name = node_id_list[contributor])
+        # calculate difference
+
+        json_node   = json.loads(node_res)
+        json_bridge = json.loads(bridge_res)
+        print "bridge " + node_res
+        print "node " + bridge_res
+
+        perc_complete = 0
+        
+        if len(json_node.keys()) > 0:
+            nr_found = 0
+            for key in json_node:
+                if key in json_bridge:
+                    nr_found += 1
+            perc_complete = nr_found / len(json_node)
+        print "Found {} % completion on bridge".format(perc_complete*100)
 
         # disconnect
-        #remove_pipeworks_interface(bridge_id)
         bring_node_down(container_id)
 
     remove_all_docker()
