@@ -11,6 +11,7 @@ from multiprocessing import Process
 pipework_path = os.getcwd()+'/pipework'
 interface = 'eth0'
 docker_path = '/usr/bin/docker'
+start_daemon_command = 'python /home/ers/daemon.py --config /etc/ers-node/ers-node.ini'
 # In this test we simulate a truck going through a number of villages
 # In each village there is a merchant which has a list of prices, stored on an ERS_CONTRIBUTOR
 # The truck has an ERS bridge that will sync with each contributor.
@@ -19,6 +20,7 @@ docker_path = '/usr/bin/docker'
 
 # at least 3
 NR_INSTANCES = 4
+NR_INITIAL_STATEMENTS = 3
 
 def add_document_to_couchdb_in_docker(container_id, entity_id, dbname, statements):
     document_json = {"@id": entity_id}
@@ -53,12 +55,12 @@ def link_nodes(container_list):
     #bridge will connect to each subnet in turn
     for i in range(len(container_list)):
         container_id = container_list[i]
-        pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' ' + container_id +' 192.168.2.' + str(i+1) + '/24'
+        pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' ' + container_id +' 192.168.1.' + str(i+1) + '/24'
         os.system(pipeworks_command)
         wait_command = 'sudo ' + pipework_path + ' --wait -i ' + interface
         os.system(wait_command)
         # make unavailable (disconnect)
-        bring_node_down(container_id)
+        #bring_node_down(container_id)
         #also down default eth0
         #bring_node_down(container_id, "eth0")
 
@@ -77,16 +79,39 @@ def bring_node_up(container_id):
     full_cmd = (docker_path + " exec {} {}").format(container_id, command)
     os.system(full_cmd)
 
+def start_daemon(container_id):
+    #start ers daemon process
+    command = start_daemon_command
+    full_cmd = (docker_path + " exec -d {} {}").format(container_id, command)
+    os.system(full_cmd)
+
+
+
+
 def bring_node_down(container_id, interface = 'eth1'):
     command = 'ifconfig ' + interface +  ' down'
     full_cmd = (docker_path + " exec {} {}").format(container_id, command)
     os.system(full_cmd)
 
-def populate_prices_contributors(container_list):
-    vendor_items = 3
+def stop_daemon(container_id):
+    #this will return the pid of the daemon process
+    #kill it
+
+    command = "ps aux | grep '[p]ython .*/ers/daemon' | awk '{print $2}'"
+    full_cmd = (docker_path + " exec {} {}").format(container_id, command)
+    res = os.popen(full_cmd).read()
+    daemon_pid  = res.split()[0]
+
+    command = 'kill -9 {}'.format(daemon_pid)
+    full_cmd = (docker_path + " exec {} {}").format(container_id, command)
+    os.system(full_cmd)
+
+
+
+def populate_prices_contributors(container_list, node_id_list):
     for i in range(len(container_list)):
         # add initial prices
-        node_id = chr(ord('A')+i)
+        node_id = node_id_list[i]
         container_id = container_list[i]
 
         full_cmd_prefix = docker_path + ' exec ' + str(container_id) + ' '
@@ -94,8 +119,8 @@ def populate_prices_contributors(container_list):
         os.system(full_cmd_prefix + command)
 
 
-        for j in range(vendor_items):
-            command = 'curl -s localhost:5000/AddStatement/' + node_id + '/item' + str(i) + '/price' + str(i)
+        for j in range(NR_INITIAL_STATEMENTS):
+            command = 'curl -s localhost:5000/AddStatement/' + node_id + '/item' + node_id + str(j) + '/price' + str(j)
             os.system(full_cmd_prefix + command)
 
 
@@ -105,7 +130,7 @@ def start_nodes():
     for i in range(NR_INSTANCES):
         result = subprocess.check_output(command.split())
         #os.system(command)
-        time.sleep(1)
+        time.sleep(2)
         if result[-1] == '\n':
             result = result[:-1]
         #bring down default eth0
@@ -136,12 +161,12 @@ def start_bridge():
         container_id = container_id[:-1]
 
     #create subnet
-    pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' -i eth1 '  + container_id + ' 192.168.2.250/24'
+    #stop_daemon(container_id)
+    pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' -i eth1 '  + container_id + ' 192.168.1.250/24'
     os.system(pipeworks_command)
     wait_command = 'sudo ' + pipework_path + ' --wait -i ' + interface
     os.system(wait_command)
-
-    return result
+    return container_id 
 
 def remove_all_docker():
     kill_command = docker_path + ' exec {} pkill python'
@@ -155,11 +180,11 @@ def remove_all_docker():
     #os.system(docker_path + ' kill ' + result)
     os.system(docker_path + ' rm ' + result)
 
-def add_statements(run_seconds, container_id, entity_name):
-    i = 0
+def add_statements(run_seconds, container_id, entity_name, node_id):
+    i = NR_INITIAL_STATEMENTS
     full_cmd_prefix = docker_path + ' exec ' + str(container_id) + ' '
     while (time.time() < run_seconds):
-        command = 'curl -s localhost:5000/' + entity_name + '/item' + str(i) + '/price' + str(i)
+        command = 'curl -s localhost:5000/AddStatement/' + entity_name + '/item' + node_id + str(i) + '/price' + str(i)
         os.system(full_cmd_prefix + command)
         time.sleep(random.randint(1,2))
         i += 1
@@ -177,7 +202,7 @@ def main():
     container_list = running_containers_list()
 
     node_id_list = [chr(ord('A') + i) for i in range(len(container_list))]
-    populate_prices_contributors(container_list)
+    populate_prices_contributors(container_list, node_id_list)
     # at this point, each contributor has his own price list
     # create a subnet for each of them
     link_nodes(container_list)
@@ -191,7 +216,8 @@ def main():
     for i in range(NR_INSTANCES):
         container_id = container_list[i]
         #connect bridge to container 'container_list[i]'
-        bring_node_up(container_id)
+        #bring_node_up(container_id)
+        #start_daemon(bridge_id)
 
         #search for neighbors
         if i == 0:
@@ -216,7 +242,7 @@ def main():
             full_cmd = docker_path + " exec " + container_id + " " + cache_command + left_peer
             output = subprocess.check_output(full_cmd.split(' '))
         except:
-            # peer not found on brige, skip?
+            print ' peer ' + left_peer +' not found on brige, skip?'
             pass
 
         try:
@@ -224,19 +250,31 @@ def main():
             full_cmd = docker_path + " exec " + container_id + " " + cache_command + right_peer
             output = subprocess.check_output(full_cmd.split(' '))
         except:
-            # peer not found on brige, skip?
+            print ' peer ' + right_peer +' not found on brige, skip?'
             pass
 
         #disconnect truck from peer
         #remove_pipeworks_interface(bridge_id, i + 1)
-        bring_node_down(container_id)
+        #bring_node_down(container_id)
+        #stop_daemon(bridge_id)
+
+    #stop bridge daemon
+    stop_daemon(bridge_id)
 
     NR_STEPS_TEST = 10
     #start a process on each node that adds prices
+    import pdb;pdb.set_trace()
     for j in range(len(container_list)):
         container_id = container_list[j]
+        
+        if container_id in bridge_id:
+            # don't add to bridge
+            continue
+
+        # disconnect from bridge
+        bring_node_down(container_id)
         entity_name = node_id_list[j]
-        p = Process(target=add_statements, args=(200, container_id, entity_name))
+        p = Process(target=add_statements, args=(200, container_id, entity_name, node_id_list[j]))
         p.start()
 
 
@@ -251,6 +289,8 @@ def main():
         container_id = container_list[contributor]
         #connect bridge to container 'container_list[i]'
         bring_node_up(container_id)
+
+        start_daemon(bridge_id)
 
         # wait
         time.sleep(4)
@@ -274,10 +314,14 @@ def main():
                 if key in json_bridge:
                     nr_found += 1
             perc_complete = nr_found / len(json_node)
+        if perc_complete == 0:
+            import pdb;pdb.set_trace()
         print "Found {} % completion on bridge".format(perc_complete*100)
 
         # disconnect
         bring_node_down(container_id)
+        stop_daemon(bridge_id)
+        time.sleep(1)
 
     remove_all_docker()
 
