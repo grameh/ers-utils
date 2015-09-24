@@ -39,6 +39,13 @@ def running_containers_list():
     containers_list = []
     for container_id in result.split():
         containers_list.append(container_id)
+
+    #remove newlines
+    for i in range(len(containers_list)):
+        cont = containers_list[i]
+        if cont[-1] == '\n':
+            containters_list[i] = cont[:-1]
+
     return containers_list
 
 def link_nodes(container_list):
@@ -46,21 +53,19 @@ def link_nodes(container_list):
     #bridge will connect to each subnet in turn
     for i in range(len(container_list)):
         container_id = container_list[i]
-        pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' ' + container_id +' 192.168.2.' + str(i) + '/24'
+        pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' ' + container_id +' 192.168.2.' + str(i+1) + '/24'
         os.system(pipeworks_command)
         wait_command = 'sudo ' + pipework_path + ' --wait -i ' + interface
         os.system(wait_command)
         # make unavailable (disconnect)
         bring_node_down(container_id)
         #also down default eth0
-        bring_node_down(container_id, "eth0")
+        #bring_node_down(container_id, "eth0")
 
 
 
 def remove_pipeworks_interface(container_id, interface_nr):
     #remove pipeworks interface from container
-    if container_id[-1] == '\n':
-        container_id = container_id[:-1]
     command = 'ifconfig eth'+ str(interface_nr)  +' down'
     full_cmd = (docker_path + " exec {} {}").format(container_id, command)
     os.system(full_cmd)
@@ -68,15 +73,11 @@ def remove_pipeworks_interface(container_id, interface_nr):
     #os.system(host_cmd)
 
 def bring_node_up(container_id):
-    if container_id[-1] == '\n':
-        container_id = container_id[:-1]
     command = 'ifconfig eth1 up'
     full_cmd = (docker_path + " exec {} {}").format(container_id, command)
     os.system(full_cmd)
 
 def bring_node_down(container_id, interface = 'eth1'):
-    if container_id[-1] == '\n':
-        container_id = container_id[:-1]
     command = 'ifconfig ' + interface +  ' down'
     full_cmd = (docker_path + " exec {} {}").format(container_id, command)
     os.system(full_cmd)
@@ -85,37 +86,41 @@ def populate_prices_contributors(container_list):
     vendor_items = 3
     for i in range(len(container_list)):
         # add initial prices
-        container_id = container_list[i]
         node_id = chr(ord('A')+i)
-        node_information = {'ers:Item' + node_id + '1': str(i),
-                            'ers:Item' + node_id + '2': str(i),
-                            'ers:type': 'ers:Vendor'}
-        for j in range(vendor_items):
-            node_information['ers:Item' + node_id + str(j)] = str(0)
+        container_id = container_list[i]
 
-        # test shouldn't really have more than 27 nodes
-        add_document_to_couchdb_in_docker(container_id, node_id, 'ers-public', node_information)
+        full_cmd_prefix = docker_path + ' exec ' + str(container_id) + ' '
+        command = 'curl -s localhost:5000/AddStatement/' + node_id + '/ers:type/ers:Vendor'
+        os.system(full_cmd_prefix + command)
+
+
+        for j in range(vendor_items):
+            command = 'curl -s localhost:5000/AddStatement/' + node_id + '/item' + str(i) + '/price' + str(i)
+            os.system(full_cmd_prefix + command)
+
 
 def start_nodes():
     command = (docker_path + " run --privileged -d grameh/ers")
 
     for i in range(NR_INSTANCES):
-        #result = subprocess.check_output(command.split())
-        os.system(command)
+        result = subprocess.check_output(command.split())
+        #os.system(command)
         time.sleep(1)
+        if result[-1] == '\n':
+            result = result[:-1]
+        #bring down default eth0
+        bring_node_down(result, "eth0")
+
+
 
 def add_bridge_pipework_interface(container_id, interface_nr):
     #connect bridge to one of the contributors
-    #if container_id[-1] == '\n':
-    #    container_id = container_id[:-1]
     #pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' -i eth1 -l hstbr  ' + container_id + ' 192.168.' + str(subnet_id) + '.250/24'
     #os.system(pipeworks_command)
     #wait_command = 'sudo ' + pipework_path + ' --wait -i ' + interface
     #os.system(wait_command)
 
     #bring up interface
-    if container_id[-1] == '\n':
-        container_id = container_id[:-1]
     command = 'ifconfig eth'+ str(interface_nr)  +' up'
     full_cmd = (docker_path + " exec {} {}").format(container_id, command)
     os.system(full_cmd)
@@ -150,30 +155,27 @@ def remove_all_docker():
     #os.system(docker_path + ' kill ' + result)
     os.system(docker_path + ' rm ' + result)
 
-def add_statements(run_seconds, container_id):
+def add_statements(run_seconds, container_id, entity_name):
     i = 0
-    if container_id[-1] == '\n':
-        container_id = container_id[:-1]
     full_cmd_prefix = docker_path + ' exec ' + str(container_id) + ' '
     while (time.time() < run_seconds):
         command = 'curl -s localhost:5000/' + entity_name + '/item' + str(i) + '/price' + str(i)
         os.system(full_cmd_prefix + command)
-        time.sleep(random.randint(1,4))
+        time.sleep(random.randint(1,2))
         i += 1
 
 def query_node(container_id, db_name, entity_name):
     command= 'curl -s localhost:5000/ShowDBDocument/' + db_name + '/' + entity_name
-    if container_id[-1] == '\n':
-        container_id = container_id[:-1]
     full_cmd_prefix = docker_path + ' exec ' + str(container_id) + ' '
     result = subprocess.check_output((full_cmd_prefix + command).split())
     return result
 
 def main():
     start_nodes()
-    time.sleep(2)
+    time.sleep(4)
     #populate initial prices
     container_list = running_containers_list()
+
     node_id_list = [chr(ord('A') + i) for i in range(len(container_list))]
     populate_prices_contributors(container_list)
     # at this point, each contributor has his own price list
@@ -190,7 +192,6 @@ def main():
         container_id = container_list[i]
         #connect bridge to container 'container_list[i]'
         bring_node_up(container_id)
-        #add_bridge_pipework_interface(bridge_id, i + 1)
 
         #search for neighbors
         if i == 0:
@@ -232,8 +233,10 @@ def main():
 
     NR_STEPS_TEST = 10
     #start a process on each node that adds prices
-    for container_id in container_list:
-        p = Process(target=add_statements, args=(200, container_id))
+    for j in range(len(container_list)):
+        container_id = container_list[j]
+        entity_name = node_id_list[j]
+        p = Process(target=add_statements, args=(200, container_id, entity_name))
         p.start()
 
 
@@ -250,7 +253,7 @@ def main():
         bring_node_up(container_id)
 
         # wait
-        time.sleep(2)
+        time.sleep(4)
 
         # query node 
         node_res = query_node(container_id, db_name = 'ers-public', entity_name = node_id_list[contributor])
@@ -260,8 +263,8 @@ def main():
 
         json_node   = json.loads(node_res)
         json_bridge = json.loads(bridge_res)
-        print "bridge " + node_res
-        print "node " + bridge_res
+        print "node " + node_res
+        print "bridge " + bridge_res
 
         perc_complete = 0
         
