@@ -57,8 +57,14 @@ def link_nodes(container_list):
         container_id = container_list[i]
         pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' ' + container_id +' 192.168.1.' + str(i+1) + '/24'
         os.system(pipeworks_command)
-        wait_command = 'sudo ' + pipework_path + ' --wait -i ' + interface
-        os.system(wait_command)
+
+
+        # waiting should be inside container; quick&dirty sleep(1)
+        time.sleep(1)
+
+        #wait_command = 'sudo ' + pipework_path + ' --wait -i ' + interface
+        #os.system(wait_command)
+
         # make unavailable (disconnect)
         #bring_node_down(container_id)
         #also down default eth0
@@ -69,6 +75,7 @@ def link_nodes(container_list):
 def remove_pipeworks_interface(container_id, interface_nr):
     #remove pipeworks interface from container
     command = 'ifconfig eth'+ str(interface_nr)  +' down'
+
     full_cmd = (docker_path + " exec {} {}").format(container_id, command)
     os.system(full_cmd)
     #host_cmd = 'sudo ifconfig hostbridge down'
@@ -76,6 +83,7 @@ def remove_pipeworks_interface(container_id, interface_nr):
 
 def bring_node_up(container_id):
     command = 'ifconfig eth1 up'
+
     full_cmd = (docker_path + " exec {} {}").format(container_id, command)
     os.system(full_cmd)
 
@@ -102,7 +110,8 @@ def stop_daemon(container_id):
     res = os.popen(full_cmd).read()
     daemon_pid  = res.split()[0]
 
-    command = 'kill -9 {}'.format(daemon_pid)
+    #send sigterm, caught by daemon which does cleanup
+    command = 'kill -15 {}'.format(daemon_pid)
     full_cmd = (docker_path + " exec {} {}").format(container_id, command)
     os.system(full_cmd)
 
@@ -125,7 +134,7 @@ def populate_prices_contributors(container_list, node_id_list):
 
 
 def start_nodes():
-    command = (docker_path + " run --privileged -d grameh/ers")
+    command = (docker_path + " run --privileged --cap-add=NET_ADMIN -d grameh/ers")
 
     for i in range(NR_INSTANCES):
         result = subprocess.check_output(command.split())
@@ -151,7 +160,7 @@ def add_bridge_pipework_interface(container_id, interface_nr):
     os.system(full_cmd)
 
 def start_bridge():
-    command = (docker_path + ' run --privileged -d grameh/ers-bridge')
+    command = (docker_path + ' run --privileged --cap-add=NET_ADMIN -d grameh/ers-bridge')
 
     result = subprocess.check_output(command.split(' '))
 
@@ -160,13 +169,14 @@ def start_bridge():
     if container_id[-1] == '\n':
         container_id = container_id[:-1]
 
+    bring_node_down(container_id, "eth0")
+
     #create subnet
     #stop_daemon(container_id)
     pipeworks_command = 'sudo ' + pipework_path + ' ' + interface + ' -i eth1 '  + container_id + ' 192.168.1.250/24'
     os.system(pipeworks_command)
-    wait_command = 'sudo ' + pipework_path + ' --wait -i ' + interface
-    os.system(wait_command)
-    return container_id 
+    time.sleep(1)
+    return container_id
 
 def remove_all_docker():
     kill_command = docker_path + ' exec {} pkill python'
@@ -180,14 +190,24 @@ def remove_all_docker():
     #os.system(docker_path + ' kill ' + result)
     os.system(docker_path + ' rm ' + result)
 
-def add_statements(run_seconds, container_id, entity_name, node_id):
+def add_statements(nr_statements, container_id, entity_name):
     i = NR_INITIAL_STATEMENTS
-    full_cmd_prefix = docker_path + ' exec ' + str(container_id) + ' '
-    while (time.time() < run_seconds):
-        command = 'curl -s localhost:5000/AddStatement/' + entity_name + '/item' + node_id + str(i) + '/price' + str(i)
-        os.system(full_cmd_prefix + command)
-        time.sleep(random.randint(1,2))
-        i += 1
+    full_cmd_prefix = docker_path + ' exec -d ' + str(container_id) + ' '
+    start = time.time()
+    item_list=[]
+    val_list=[]
+    command = 'curl -s ' 
+    command += '-H "Content-Type: application/json" -X POST -d '
+    for j in range(nr_statements):
+        #command += ' -d predicates[]=' + 'item'+ entity_name+ str(j) + ' '
+        #command += ' -d values[]=' + 'price'+str(j) + ' '
+        item_list.append('item'+ entity_name+ str(j))
+        val_list.append('price'+str(j))
+    d={'predicates':item_list, 'values':val_list}
+    command += "'{json_dump}'".format(json_dump=json.dumps(d))
+
+    command += ' localhost:5000/BatchAddStatement/' + entity_name + '/'
+    os.system(full_cmd_prefix + command)
 
 def query_node(container_id, db_name, entity_name):
     command= 'curl -s localhost:5000/ShowDBDocument/' + db_name + '/' + entity_name
@@ -263,10 +283,9 @@ def main():
 
     NR_STEPS_TEST = 10
     #start a process on each node that adds prices
-    import pdb;pdb.set_trace()
     for j in range(len(container_list)):
         container_id = container_list[j]
-        
+
         if container_id in bridge_id:
             # don't add to bridge
             continue
@@ -274,7 +293,7 @@ def main():
         # disconnect from bridge
         bring_node_down(container_id)
         entity_name = node_id_list[j]
-        p = Process(target=add_statements, args=(200, container_id, entity_name, node_id_list[j]))
+        p = Process(target=add_statements, args=(20, container_id, entity_name))
         p.start()
 
 
@@ -293,9 +312,9 @@ def main():
         start_daemon(bridge_id)
 
         # wait
-        time.sleep(4)
+        time.sleep(2)
 
-        # query node 
+        # query node
         node_res = query_node(container_id, db_name = 'ers-public', entity_name = node_id_list[contributor])
         # query bridge
         bridge_res = query_node(bridge_id, db_name = 'ers-cache', entity_name = node_id_list[contributor])
@@ -303,25 +322,26 @@ def main():
 
         json_node   = json.loads(node_res)
         json_bridge = json.loads(bridge_res)
-        print "node " + node_res
-        print "bridge " + bridge_res
+        #print "node " + node_res
+        #print "bridge " + bridge_res
 
         perc_complete = 0
-        
+
         if len(json_node.keys()) > 0:
             nr_found = 0
             for key in json_node:
                 if key in json_bridge:
                     nr_found += 1
-            perc_complete = nr_found / len(json_node)
-        if perc_complete == 0:
-            import pdb;pdb.set_trace()
+            perc_complete = float(nr_found) / len(json_node)
+        if perc_complete != 1.0:
+            pass
         print "Found {} % completion on bridge".format(perc_complete*100)
 
         # disconnect
         bring_node_down(container_id)
         stop_daemon(bridge_id)
         time.sleep(1)
+
 
     remove_all_docker()
 

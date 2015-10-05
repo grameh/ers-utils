@@ -6,4 +6,4 @@ sleep 1
 sleep 1
 python /home/ers/daemon.py --config /etc/ers-node/ers-node.ini 2> /var/log/ers-log &
 sleep 1
-python /home/web_api.py
+python /home/web_api.py 2> /var/log/api-log 

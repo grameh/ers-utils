@@ -58,7 +58,7 @@ def remove_all_docker():
 
 
 def start_nodes():
-    command = (docker_path + " run -d grameh/ers")
+    command = (docker_path + " run -d --privileged --cap-add=NET_ADMIN grameh/ers")
 
     for i in range(NR_INSTANCES):
         #result = subprocess.check_output(command.split())
