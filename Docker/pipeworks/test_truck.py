@@ -19,7 +19,7 @@ start_daemon_command = 'python /home/ers/daemon.py --config /etc/ers-node/ers-no
 # the truck passes by.
 
 # at least 3
-NR_INSTANCES = 4
+NR_INSTANCES = 6
 NR_INITIAL_STATEMENTS = 3
 
 def add_document_to_couchdb_in_docker(container_id, entity_id, dbname, statements):
@@ -293,8 +293,10 @@ def main():
         # disconnect from bridge
         bring_node_down(container_id)
         entity_name = node_id_list[j]
-        p = Process(target=add_statements, args=(20, container_id, entity_name))
+        p = Process(target=add_statements, args=(40, container_id, entity_name))
         p.start()
+    start_daemon(bridge_id)
+    bring_node_down(bridge_id)
 
 
     #monitor differences
@@ -309,7 +311,8 @@ def main():
         #connect bridge to container 'container_list[i]'
         bring_node_up(container_id)
 
-        start_daemon(bridge_id)
+        #start_daemon(bridge_id)
+        bring_node_up(bridge_id)
 
         # wait
         time.sleep(2)
@@ -338,8 +341,9 @@ def main():
         print "Found {} % completion on bridge".format(perc_complete*100)
 
         # disconnect
+        #stop_daemon(bridge_id)
         bring_node_down(container_id)
-        stop_daemon(bridge_id)
+        bring_node_down(bridge_id)
         time.sleep(1)
 
 
